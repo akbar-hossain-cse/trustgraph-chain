@@ -1,0 +1,16 @@
+seed: 42
+n_runs: 30
+
+data:
+  dataset: unsw_nb15        # change after you verify which dataset has IPs
+  train_ratio: 0.7
+  val_ratio: 0.1            # remaining 0.2 = test (time-based split)
+
+graph:
+  window_seconds: 60
+  stride_seconds: 30
+
+model:
+  hidden_dim: 64
+  lr: 0.001
+  epochs: 50

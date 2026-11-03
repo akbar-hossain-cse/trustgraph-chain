@@ -1,0 +1,22 @@
+# data and outputs
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+results/*
+!results/.gitkeep
+*.pt
+*.pth
+*.pcap
+*.csv
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# misc
+.env
+.DS_Store
+mlruns/
