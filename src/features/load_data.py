@@ -47,6 +47,7 @@ def load_raw(raw_dir=RAW_DIR, nrows_per_file=None):
 
     # attack_cat: empty means normal traffic
     df["attack_cat"] = df["attack_cat"].fillna("Normal").astype(str).str.strip()
+    df["attack_cat"] = df["attack_cat"].replace({"Backdoors": "Backdoor"})
 
     # Everything else numeric (ports can contain hex values -> NaN -> -1)
     num_cols = [c for c in COLUMNS if c not in ID_COLS + CATEGORICAL]
