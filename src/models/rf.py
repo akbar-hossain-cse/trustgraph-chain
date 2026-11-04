@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -68,9 +69,13 @@ if __name__ == "__main__":
     rf.fit(train[feats], train["Label"])
     print(f"Trained in {time.time() - t0:.0f}s")
 
+    Path("results/preds").mkdir(parents=True, exist_ok=True)
     for name, part in [("val", val), ("test", test)]:
         prob = rf.predict_proba(part[feats])[:, 1]
         m = evaluate(part["Label"].values, prob)
-        print(name, {k: round(v, 4) for k, v in m.items()})
+        print(name, {k: round(float(v), 4) for k, v in m.items()})
         log_result({"time": datetime.now().isoformat(timespec="seconds"),
                     "model": "rf", "split": name, "seed": seed, **m})
+        np.savez_compressed(f"results/preds/{'rf'}_{name}.npz",
+                            y=part["Label"].values, p=prob.astype(np.float32))
+    joblib.dump(rf, "results/rf.joblib")   # needed later for the evasion tests

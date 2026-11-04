@@ -3,6 +3,7 @@ import argparse
 import copy
 import time
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -134,12 +135,19 @@ def main():
             best_f1, best_sd = m["f1"], copy.deepcopy(model.state_dict())
 
     # Final evaluation with the best-on-val weights
-    model.load_state_dict(best_sd)
     name = "static_gnn" if a.model == "static" else "tgnn"
-    p, y, _ = predict(model, tr[-a.warm:], va, n, H, dev)
-    mv = evaluate(y, p)
+    trained_now = best_sd is not None
+    if best_sd is None:   # --epochs 0: reuse the weights saved earlier
+        best_sd = torch.load(f"results/{name}.pth", map_location=dev)
+    model.load_state_dict(best_sd)
+    pv, yv, _ = predict(model, tr[-a.warm:], va, n, H, dev)
+    mv = evaluate(yv, pv)
     p, y, c = predict(model, (tr[-a.warm:] if a.model == "temporal" else []) + va, te, n, H, dev)
     mt = evaluate(y, p)
+    Path("results/preds").mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(f"results/preds/{name}_val.npz", y=yv, p=pv)
+    np.savez_compressed(f"results/preds/{name}_test.npz", y=y, p=p)
+
     print("\nBEST", name)
     print("val ", {k: round(float(v), 4) for k, v in mv.items()})
     print("test", {k: round(float(v), 4) for k, v in mt.items()})
@@ -148,10 +156,11 @@ def main():
         mask = (c == i) & (y == 1)
         if cn != "Normal" and mask.sum() > 0:
             print(f"  {cn:15s} n={int(mask.sum()):6d}  recall={(p[mask] >= 0.5).mean():.3f}")
-    for sp, m in [("val", mv), ("test", mt)]:
-        log_result({"time": datetime.now().isoformat(timespec="seconds"),
-                    "model": name, "split": sp, "seed": seed, **m})
-    torch.save(best_sd, f"results/{name}.pth")
+    if trained_now:
+        for sp, m in [("val", mv), ("test", mt)]:
+            log_result({"time": datetime.now().isoformat(timespec="seconds"),
+                        "model": name, "split": sp, "seed": seed, **m})
+        torch.save(best_sd, f"results/{name}.pth")
 
 
 if __name__ == "__main__":
