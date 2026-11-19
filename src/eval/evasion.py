@@ -11,7 +11,7 @@ from src.features.load_data import load_config
 from src.models.gnn import EdgeGNN, predict
 from src.models.rf import evaluate
 
-MODELS = ["rf", "static_gnn", "tgnn"]
+MODELS = ["rf", "static_gnn", "tgnn", "static_gnn_adv", "tgnn_adv"]
 
 
 def inv(v):
@@ -67,7 +67,8 @@ def main():
     # models and CLEAN-val thresholds
     rf = joblib.load("results/rf.joblib")
     nets = {}
-    for name, temporal in [("static_gnn", False), ("tgnn", True)]:
+    for name, temporal in [("static_gnn", False), ("tgnn", True),
+                           ("static_gnn_adv", False), ("tgnn_adv", True)]:
         m = EdgeGNN(6, len(feats), H, temporal=temporal).to(dev)
         m.load_state_dict(torch.load(f"results/{name}.pth", map_location=dev))
         m.eval()
