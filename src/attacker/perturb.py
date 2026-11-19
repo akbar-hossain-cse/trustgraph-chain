@@ -10,6 +10,7 @@ TIMING = ["dur", "Sload", "Dload", "Sjit", "Djit", "Sintpkt", "Dintpkt"]
 VOLUME = ["sbytes", "dbytes", "Spkts", "Dpkts", "smeansz", "dmeansz"]
 CONTROLLABLE = TIMING + VOLUME
 MATCH_COLS = ["proto_enc", "state_enc", "service_enc"]
+SRC_EXTRA = ["sttl", "swin", "stcpb"]
 
 # Used for testing AND adversarial training
 LEVELS = {
@@ -28,6 +29,8 @@ HELDOUT = {
     "H1_matched_a0.50": {"alpha": 0.50, "cols": CONTROLLABLE, "match": True},
     "H2_matched_a0.75": {"alpha": 0.75, "cols": CONTROLLABLE, "match": True},
     "H3_matched_pad": {"alpha": 0.75, "cols": CONTROLLABLE, "match": True, "pad": 0.5},
+    "S1_src16_a0.50": {"alpha": 0.50, "cols": CONTROLLABLE + SRC_EXTRA},
+    "S2_src16_a1.00": {"alpha": 1.00, "cols": CONTROLLABLE + SRC_EXTRA},
 }
 
 
