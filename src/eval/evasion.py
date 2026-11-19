@@ -1,17 +1,19 @@
-"""Evaluate RF / static GNN / temporal GNN under feature-space evasion.
-Thresholds are fixed from CLEAN validation data (defender has not seen the evasion)."""
+"""Evaluate RF / static GNN / temporal GNN (and adversarially trained versions)
+under feature-space evasion. Thresholds are fixed from CLEAN validation data.
+LEVELS were seen in adversarial training; HELDOUT levels were not."""
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
 import torch
 
-from src.attacker.perturb import CONTROLLABLE, LEVELS, add_padding, perturb_flows
+from src.attacker.perturb import (CONTROLLABLE, HELDOUT, LEVELS, add_padding,
+                                  build_groups, perturb_flows)
 from src.eval.threshold import best_threshold
 from src.features.load_data import load_config
 from src.models.gnn import EdgeGNN, predict
 from src.models.rf import evaluate
-
-MODELS = ["rf", "static_gnn", "tgnn", "static_gnn_adv", "tgnn_adv"]
 
 
 def inv(v):
@@ -50,7 +52,6 @@ def main():
     te = [g for g in snaps if g["split"] == "test"]
     n = tr[0]["x"].shape[0]
 
-    # node-feature normalisation: TRAIN statistics (same as gnn.py)
     allx = torch.cat([g["x"] for g in tr])
     xmu, xsd = allx.mean(0), allx.std(0) + 1e-6
 
@@ -64,22 +65,24 @@ def main():
     warm = [dev_snap(g["x"], g["edge_index"], g["edge_attr"], g["y"], g["cat"])
             for g in tr[-100:] + va]
 
-    # models and CLEAN-val thresholds
     rf = joblib.load("results/rf.joblib")
+    net_specs = [("static_gnn", False), ("tgnn", True),
+                 ("static_gnn_adv", False), ("tgnn_adv", True)]
     nets = {}
-    for name, temporal in [("static_gnn", False), ("tgnn", True),
-                           ("static_gnn_adv", False), ("tgnn_adv", True)]:
+    for name, temporal in net_specs:
+        if not Path(f"results/{name}.pth").exists():
+            continue
         m = EdgeGNN(6, len(feats), H, temporal=temporal).to(dev)
         m.load_state_dict(torch.load(f"results/{name}.pth", map_location=dev))
         m.eval()
         nets[name] = m
+    models = ["rf"] + list(nets)
     thr = {}
-    for name in MODELS:
+    for name in models:
         v = np.load(f"results/preds/{name}_val.npz")
         thr[name] = best_threshold(v["y"], v["p"])
     print("Thresholds (from clean val):", {k: round(v, 3) for k, v in thr.items()})
 
-    # benign TRAIN flows = the attacker's imitation target
     rng0 = np.random.default_rng(seed)
     ref = []
     for g in tr:
@@ -88,9 +91,11 @@ def main():
         if len(b):
             ref.append(Zg[rng0.choice(b, min(100, len(b)), replace=False)])
     ref = np.concatenate(ref)
+    groups = build_groups(ref, col)
 
+    all_levels = {**LEVELS, **HELDOUT}
     rows = []
-    for level, lc in LEVELS.items():
+    for level, lc in all_levels.items():
         rng = np.random.default_rng(seed)
         snaps_dev, Zrf, y_rf, orig = [], [], [], []
         for g in te:
@@ -99,7 +104,7 @@ def main():
             if not lc:
                 x, Z2, ei2, y2, cat2 = g["x"], Z, ei, y, cat
             else:
-                Z = perturb_flows(Z, y, lc, ref, col, rng)
+                Z = perturb_flows(Z, y, lc, ref, col, rng, groups)
                 if lc.get("pad"):
                     ei2, Z2, y2, cat2 = add_padding(ei, Z, y, cat, lc["pad"], rng)
                 else:
@@ -111,7 +116,7 @@ def main():
             Zrf.append(Z)
             y_rf.append(y)
             o = np.zeros(len(y2), dtype=bool)
-            o[:len(y)] = True                      # original edges only
+            o[:len(y)] = True
             orig.append(o)
 
         y_o, mask = np.concatenate(y_rf), np.concatenate(orig)
@@ -122,7 +127,7 @@ def main():
             p, _, _ = predict(m, warm if m.temporal else [], snaps_dev, n, H, dev)
             probs[name] = p[mask]
 
-        for name in MODELS:
+        for name in models:
             met = evaluate(y_o, probs[name], thr[name])
             rows.append({"level": level, "model": name,
                          **{k: float(v) for k, v in met.items()}})
@@ -130,10 +135,14 @@ def main():
 
     df = pd.DataFrame(rows)
     df.to_csv("results/evasion_results.csv", index=False)
-    for metric in ["recall", "f1", "fpr"]:
-        print(f"\n{metric.upper()}")
-        print(df.pivot(index="model", columns="level", values=metric)
-                .reindex(index=MODELS, columns=list(LEVELS)).round(4).to_string())
+    for title, lv in [("SEEN IN ADVERSARIAL TRAINING", list(LEVELS)),
+                      ("HELD-OUT (NOT SEEN)", ["clean"] + list(HELDOUT))]:
+        for metric in ["recall", "f1"]:
+            print(f"\n{metric.upper()} | {title}")
+            print(df.pivot(index="model", columns="level", values=metric)
+                    .reindex(index=models, columns=lv).round(4).to_string())
+    print("\nFPR (clean)")
+    print(df[df.level == "clean"].set_index("model")["fpr"].round(4).to_string())
 
 
 if __name__ == "__main__":

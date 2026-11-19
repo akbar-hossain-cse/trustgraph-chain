@@ -9,7 +9,9 @@ import numpy as np
 TIMING = ["dur", "Sload", "Dload", "Sjit", "Djit", "Sintpkt", "Dintpkt"]
 VOLUME = ["sbytes", "dbytes", "Spkts", "Dpkts", "smeansz", "dmeansz"]
 CONTROLLABLE = TIMING + VOLUME
+MATCH_COLS = ["proto_enc", "state_enc", "service_enc"]
 
+# Used for testing AND adversarial training
 LEVELS = {
     "clean": {},
     "L1_naive": {"noise": 0.5, "cols": CONTROLLABLE},
@@ -20,8 +22,26 @@ LEVELS = {
     "sweep_a0.75": {"alpha": 0.75, "cols": CONTROLLABLE},
 }
 
+# Held-out attacker: never used for training. Mimics a benign "twin" with the
+# same protocol, state and service, so the feature combination stays plausible.
+HELDOUT = {
+    "H1_matched_a0.50": {"alpha": 0.50, "cols": CONTROLLABLE, "match": True},
+    "H2_matched_a0.75": {"alpha": 0.75, "cols": CONTROLLABLE, "match": True},
+    "H3_matched_pad": {"alpha": 0.75, "cols": CONTROLLABLE, "match": True, "pad": 0.5},
+}
 
-def perturb_flows(Z, y, lc, ref, col, rng):
+
+def build_groups(ref, col):
+    """Index benign reference rows by (proto, state, service)."""
+    idx = [col[c] for c in MATCH_COLS]
+    keys = np.round(ref[:, idx], 4)
+    groups = {}
+    for i, k in enumerate(map(tuple, keys)):
+        groups.setdefault(k, []).append(i)
+    return {k: np.array(v) for k, v in groups.items()}
+
+
+def perturb_flows(Z, y, lc, ref, col, rng, groups=None):
     """Modify ATTACK rows only. Z: (edges, feats) float32. ref: benign train rows."""
     Z = Z.copy()
     idx = np.where(y == 1)[0]
@@ -33,7 +53,16 @@ def perturb_flows(Z, y, lc, ref, col, rng):
         Z[sel] += rng.normal(0, lc["noise"], (len(idx), len(cols))).astype(np.float32)
     if "alpha" in lc:
         a = lc["alpha"]
-        pick = ref[rng.integers(0, len(ref), len(idx))]      # random benign flow per attack flow
+        if lc.get("match") and groups is not None:
+            mcols = [col[c] for c in MATCH_COLS]
+            keys = np.round(Z[np.ix_(idx, mcols)], 4)
+            pick = np.empty((len(idx), Z.shape[1]), dtype=Z.dtype)
+            for r, k in enumerate(map(tuple, keys)):
+                g = groups.get(k)
+                j = g[rng.integers(len(g))] if g is not None else rng.integers(len(ref))
+                pick[r] = ref[j]
+        else:
+            pick = ref[rng.integers(0, len(ref), len(idx))]
         Z[sel] = (1 - a) * Z[sel] + a * pick[:, cols]
     return Z
 
