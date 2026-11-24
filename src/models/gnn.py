@@ -1,4 +1,5 @@
-"""Edge-level GNN (static or temporal), pure PyTorch. Each flow = an edge to classify."""
+"""Edge-level GNN (static or temporal), pure PyTorch. Each flow = an edge to classify.
+--layers sets the number of message-passing layers (0 = no graph context)."""
 import argparse
 import copy
 import time
@@ -32,11 +33,15 @@ class MPLayer(nn.Module):
 
 
 class EdgeGNN(nn.Module):
-    def __init__(self, node_in, edge_in, h=64, temporal=False):
+    def __init__(self, node_in, edge_in, h=64, temporal=False, layers=2):
         super().__init__()
         self.temporal = temporal
+        self.layers = layers
         self.enc = nn.Sequential(nn.Linear(node_in, h), nn.ReLU())
-        self.mp1, self.mp2 = MPLayer(h, edge_in), MPLayer(h, edge_in)
+        if layers >= 1:
+            self.mp1 = MPLayer(h, edge_in)
+        if layers >= 2:
+            self.mp2 = MPLayer(h, edge_in)
         if temporal:
             self.gru = nn.GRUCell(h, h)
         self.eenc = nn.Sequential(nn.Linear(edge_in, h), nn.ReLU())
@@ -44,7 +49,11 @@ class EdgeGNN(nn.Module):
 
     def forward(self, g, state):
         ei, ea = g["edge_index"], g["edge_attr"]
-        h = self.mp2(self.mp1(self.enc(g["x"]), ei, ea), ei, ea)
+        h = self.enc(g["x"])
+        if self.layers >= 1:
+            h = self.mp1(h, ei, ea)
+        if self.layers >= 2:
+            h = self.mp2(h, ei, ea)
         if self.temporal:
             state = self.gru(h, state)      # memory carried across windows
             z = state
@@ -77,6 +86,7 @@ def main():
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--chunk", type=int, default=16)   # snapshots per optimizer step (BPTT length)
     ap.add_argument("--warm", type=int, default=100)   # train snapshots used to warm up state at eval
+    ap.add_argument("--layers", type=int, default=2, choices=[0, 1, 2])
     a = ap.parse_args()
 
     cfg = load_config()
@@ -102,13 +112,14 @@ def main():
             g[k] = g[k].to(dev)
 
     n, node_in, edge_in = tr[0]["x"].shape[0], tr[0]["x"].shape[1], tr[0]["edge_attr"].shape[1]
-    model = EdgeGNN(node_in, edge_in, H, temporal=(a.model == "temporal")).to(dev)
+    model = EdgeGNN(node_in, edge_in, H, temporal=(a.model == "temporal"), layers=a.layers).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     pos = float(sum(g["y"].sum() for g in tr)) / float(sum(g["y"].numel() for g in tr))
     pw = torch.tensor(((1 - pos) / pos) ** 0.5, device=dev)   # softened class weight
     lossf = nn.BCEWithLogitsLoss(pos_weight=pw)
-    print(f"Model: {a.model} | params: {sum(p.numel() for p in model.parameters()):,} | pos_weight {pw:.2f}")
+    print(f"Model: {a.model} | layers {a.layers} | params: "
+          f"{sum(p.numel() for p in model.parameters()):,} | pos_weight {pw:.2f}")
 
     best_f1, best_sd = -1, None
     for ep in range(1, a.epochs + 1):
@@ -136,6 +147,8 @@ def main():
 
     # Final evaluation with the best-on-val weights
     name = "static_gnn" if a.model == "static" else "tgnn"
+    if a.layers != 2:
+        name += f"_L{a.layers}"
     trained_now = best_sd is not None
     if best_sd is None:   # --epochs 0: reuse the weights saved earlier
         best_sd = torch.load(f"results/{name}.pth", map_location=dev)

@@ -66,13 +66,14 @@ def main():
             for g in tr[-100:] + va]
 
     rf = joblib.load("results/rf.joblib")
-    net_specs = [("static_gnn", False), ("tgnn", True),
-                 ("static_gnn_adv", False), ("tgnn_adv", True)]
+    net_specs = [("static_gnn", False, 2), ("tgnn", True, 2),
+                 ("static_gnn_adv", False, 2), ("tgnn_adv", True, 2),
+                 ("static_gnn_L0", False, 0), ("tgnn_L0", True, 0)]
     nets = {}
-    for name, temporal in net_specs:
+    for name, temporal, layers in net_specs:
         if not Path(f"results/{name}.pth").exists():
             continue
-        m = EdgeGNN(6, len(feats), H, temporal=temporal).to(dev)
+        m = EdgeGNN(6, len(feats), H, temporal=temporal, layers=layers).to(dev)
         m.load_state_dict(torch.load(f"results/{name}.pth", map_location=dev))
         m.eval()
         nets[name] = m
