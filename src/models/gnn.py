@@ -2,6 +2,7 @@
 --layers sets the number of message-passing layers (0 = no graph context)."""
 import argparse
 import copy
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -118,7 +119,7 @@ def main():
     pos = float(sum(g["y"].sum() for g in tr)) / float(sum(g["y"].numel() for g in tr))
     pw = torch.tensor(((1 - pos) / pos) ** 0.5, device=dev)   # softened class weight
     lossf = nn.BCEWithLogitsLoss(pos_weight=pw)
-    print(f"Model: {a.model} | layers {a.layers} | params: "
+    print(f"Model: {a.model} | layers {a.layers} | seed {seed} | params: "
           f"{sum(p.numel() for p in model.parameters()):,} | pos_weight {pw:.2f}")
 
     best_f1, best_sd = -1, None
@@ -149,6 +150,7 @@ def main():
     name = "static_gnn" if a.model == "static" else "tgnn"
     if a.layers != 2:
         name += f"_L{a.layers}"
+    name += os.environ.get("TG_TAG", "")      # seed tag, applied to every config
     trained_now = best_sd is not None
     if best_sd is None:   # --epochs 0: reuse the weights saved earlier
         best_sd = torch.load(f"results/{name}.pth", map_location=dev)

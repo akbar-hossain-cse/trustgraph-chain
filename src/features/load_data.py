@@ -1,4 +1,5 @@
 """Load UNSW-NB15, clean it, and make a time-based train/val/test split."""
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -24,7 +25,10 @@ ID_COLS = ["srcip", "dstip", "attack_cat"]
 
 def load_config(path="configs/base.yaml"):
     with open(path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if os.environ.get("TG_SEED"):          # used by the multi-seed runner
+        cfg["seed"] = int(os.environ["TG_SEED"])
+    return cfg
 
 
 def load_raw(raw_dir=RAW_DIR, nrows_per_file=None):

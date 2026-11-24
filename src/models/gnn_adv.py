@@ -3,6 +3,7 @@
 Train-set attack flows are perturbed with the same feature-space emulator used
 for testing. Test data is never used to build the augmentation.
 """
+import os
 import argparse
 import copy
 import time
@@ -100,6 +101,7 @@ def main():
 
     temporal = a.model == "temporal"
     name = "tgnn_adv" if temporal else "static_gnn_adv"
+    name += os.environ.get("TG_TAG", "")
     model = EdgeGNN(6, edge_in, H, temporal=temporal).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     pos = float(sum(g["y"].sum() for g in tr_dev)) / float(sum(g["y"].numel() for g in tr_dev))
