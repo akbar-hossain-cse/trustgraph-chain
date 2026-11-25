@@ -27,6 +27,7 @@ CONFIGS = {
 }
 SHOW = ["clean", "L3_detector", "H3_matched_pad", "S1_src16_a0.50", "S2_src16_a1.00"]
 PAIRS = [("temporal", "static"), ("static", "static_L0"), ("temporal", "temporal_L0"),
+         ("temporal_L0", "static_L0"),
          ("static_adv", "static"), ("temporal_adv", "temporal")]
 
 
@@ -151,7 +152,7 @@ def main():
                 cells += f"{v.mean():9.4f}±{sdv:5.3f} "
             print(f"{c:13s}{sub.seed.nunique():2d}  {cells}")
 
-    print("\nPaired F1 difference (A minus B), paired t-test across seeds")
+    tests = []
     for A, B in PAIRS:
         for l in SHOW:
             fa = df[(df.cfg == A) & (df.level == l)].set_index("seed").f1
@@ -161,7 +162,19 @@ def main():
                 continue
             d = fa[common] - fb[common]
             _, p = stats.ttest_rel(fa[common], fb[common])
-            print(f"{A:12s} - {B:12s} | {l:15s} diff {d.mean():+.4f}  p={p:.3f}  n={len(common)}")
+            tests.append((A, B, l, d.mean(), p, len(common)))
+    bonf = 0.05 / max(len(tests), 1)
+    print(f"\nPaired F1 difference (A minus B), paired t-test across seeds")
+    print(f"{len(tests)} tests run; Bonferroni threshold p < {bonf:.4f} (marked *)")
+    for A, B, l, dm, p, k in tests:
+        star = "*" if p < bonf else " "
+        print(f"{A:12s} - {B:12s} | {l:15s} diff {dm:+.4f}  p={p:.3f} {star} n={k}")
+
+    print("\nFPR on clean data (mean ± std over seeds)")
+    for c in order:
+        v = df[(df.cfg == c) & (df.level == "clean")].fpr.to_numpy()
+        sdv = v.std(ddof=1) if len(v) > 1 else float("nan")
+        print(f"{c:13s} {v.mean():.4f} ± {sdv:.4f}")
 
 
 if __name__ == "__main__":
